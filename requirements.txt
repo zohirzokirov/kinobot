@@ -1,0 +1,9 @@
+pyTelegramBotAPI
+mysql-connector-python
+python-dotenv
+logging
+time
+re
+datetime
+typing
+os
