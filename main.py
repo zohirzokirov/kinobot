@@ -875,19 +875,14 @@ def handle_callback_query(call):
             else:
                 bot.answer_callback_query(call.id, "❌ Ruxsat yo'q!")
         
-        # 🎭 Janrlar tanlash
-        elif call.data.startswith("genre_") and not call.data.startswith("genre_page_"):
-            handle_genre_selection(call)
+
         
         elif call.data.startswith("genre_page_"):
             handle_genre_pagination(call)
 
-        elif call.data == "confirm_genres":
-            handle_confirm_genres(call)
 
-        # 📊 Sifat tanlash
-        elif call.data.startswith("quality_"):
-            handle_quality_selection(call)
+
+
         
         elif call.data == "back_to_genres":
             handle_back_to_genres(call)
@@ -956,6 +951,20 @@ def handle_callback_query(call):
         # Callback query handler ichiga qo'shamiz:
         elif call.data.startswith("add_method_"):
             handle_add_method_selection(call)
+        elif call.data.startswith("genre_"):
+            handle_genre_selection_callback(call)
+    
+        # Janrlarni tasdiqlash
+        elif call.data == "confirm_genres":
+            handle_confirm_genres_callback(call)
+        
+        # Janr tanlashni bekor qilish
+        elif call.data == "cancel_genres":
+            handle_cancel_genres_callback(call)
+        
+        # Sifat tanlash
+        elif call.data.startswith("quality_"):
+            handle_quality_selection_callback(call)
 
     except Exception as e:
         logger.error(f"Callback error: {e}")
@@ -2115,6 +2124,180 @@ def handle_quality_selection(call):
         )
     )
     bot.answer_callback_query(call.id)
+
+# Janr tugmalarini yaratish funksiyasi
+def create_genres_keyboard(selected_genres=None):
+    """Janrlarni tugmalar ko'rinishida qaytaradi"""
+    if selected_genres is None:
+        selected_genres = []
+    
+    genres = get_genres()
+    keyboard = types.InlineKeyboardMarkup(row_width=3)
+    buttons = []
+    
+    for genre_id, genre_name in genres:
+        # Agar janr tanlangan bo'lsa, ✅ belgisi qo'yiladi
+        prefix = "✅ " if genre_id in selected_genres else ""
+        callback_data = f"genre_{genre_id}"
+        buttons.append(types.InlineKeyboardButton(
+            f"{prefix}{genre_name}", 
+            callback_data=callback_data
+        ))
+    
+    # Tugmalarni 3 qatordan qilib joylashtirish
+    keyboard.add(*buttons)
+    
+    # Tasdiqlash va bekor qilish tugmalari
+    keyboard.add(
+        types.InlineKeyboardButton("✅ Tasdiqlash", callback_data="confirm_genres"),
+        types.InlineKeyboardButton("❌ Bekor qilish", callback_data="cancel_genres")
+    )
+    
+    return keyboard
+
+# Kino qo'shish boshlanganda janr tanlashni ko'rsatish
+def start_add_movie_genres(user_id: int, message_id: int):
+    """Kino qo'shishda janr tanlashni boshlash"""
+    if user_id not in user_sessions:
+        user_sessions[user_id] = {}
+    
+    user_sessions[user_id]['selected_genres'] = []
+    user_sessions[user_id]['adding_movie'] = True
+    
+    keyboard = create_genres_keyboard([])
+    
+    bot.edit_message_text(
+        "🎬 Kino qo'shish - Janr tanlash\n\n"
+        "Kinoning janrlarini tanlang (bir nechta tanlashingiz mumkin):",
+        user_id, message_id,
+        reply_markup=keyboard
+    )
+
+# Janr tanlash callback handler
+def handle_genre_selection_callback(call):
+    """Janr tanlash tugmasi bosilganda ishlaydi"""
+    user_id = call.from_user.id
+    genre_id = int(call.data.split('_')[1])
+    
+    if user_id not in user_sessions:
+        user_sessions[user_id] = {'selected_genres': []}
+    
+    if 'selected_genres' not in user_sessions[user_id]:
+        user_sessions[user_id]['selected_genres'] = []
+    
+    selected = user_sessions[user_id]['selected_genres']
+    
+    # Janrni tanlash yoki olib tashlash
+    if genre_id in selected:
+        selected.remove(genre_id)
+    else:
+        selected.append(genre_id)
+    
+    # Tugmalarni yangilash
+    keyboard = create_genres_keyboard(selected)
+    bot.edit_message_reply_markup(
+        user_id, 
+        call.message.message_id,
+        reply_markup=keyboard
+    )
+    
+    bot.answer_callback_query(call.id)
+
+# Janrlarni tasdiqlash
+def handle_confirm_genres_callback(call):
+    """Tanlangan janrlarni tasdiqlash"""
+    user_id = call.from_user.id
+    
+    if user_id not in user_sessions or 'selected_genres' not in user_sessions[user_id]:
+        bot.answer_callback_query(call.id, "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.")
+        return
+    
+    selected = user_sessions[user_id]['selected_genres']
+    
+    if not selected:
+        bot.answer_callback_query(call.id, "❌ Kamida bitta janr tanlang!")
+        return
+    
+    # Janrlarni nomlarini olish
+    connection = get_db_connection()
+    if connection:
+        try:
+            cursor = connection.cursor()
+            placeholders = ','.join(['%s'] * len(selected))
+            cursor.execute(f"SELECT name FROM genres WHERE id IN ({placeholders})", selected)
+            genre_names = [row[0] for row in cursor.fetchall()]
+            
+            # Tanlangan janrlarni xabarda ko'rsatish
+            genres_text = ", ".join(genre_names)
+            
+            # Keyingi bosqichga o'tish (masalan, sifat tanlash)
+            user_sessions[user_id]['step'] = 'quality'
+            
+            # Sifat tanlash menyusini ko'rsatish
+            keyboard = types.InlineKeyboardMarkup(row_width=2)
+            qualities = [
+                ("1080p", "quality_1080"),
+                ("720p", "quality_720"),
+                ("480p", "quality_480")
+            ]
+            for quality, callback in qualities:
+                keyboard.add(types.InlineKeyboardButton(quality, callback_data=callback))
+            
+            bot.edit_message_text(
+                f"✅ Tanlangan janrlar: {genres_text}\n\n"
+                f"Endi kino sifatini tanlang:",
+                user_id, call.message.message_id,
+                reply_markup=keyboard
+            )
+            
+        except Exception as e:
+            logger.error(f"Error getting genre names: {e}")
+            bot.answer_callback_query(call.id, "❌ Xatolik yuz berdi!")
+        finally:
+            cursor.close()
+            connection.close()
+
+# Janr tanlashni bekor qilish
+def handle_cancel_genres_callback(call):
+    """Janr tanlashni bekor qilish"""
+    user_id = call.from_user.id
+    
+    if user_id in user_sessions:
+        if 'selected_genres' in user_sessions[user_id]:
+            del user_sessions[user_id]['selected_genres']
+        if 'adding_movie' in user_sessions[user_id]:
+            del user_sessions[user_id]['adding_movie']
+    
+    bot.edit_message_text(
+        "❌ Kino qo'shish bekor qilindi.",
+        user_id, call.message.message_id,
+        reply_markup=admin_panel() if user_id in ADMIN_IDS else main_menu(user_id)
+    )
+    
+    bot.answer_callback_query(call.id)
+
+# Sifat tanlash callback handler
+def handle_quality_selection_callback(call):
+    """Sifat tanlanganda ishlaydi"""
+    user_id = call.from_user.id
+    quality = call.data.split('_')[1]
+    
+    if user_id not in user_sessions:
+        user_sessions[user_id] = {}
+    
+    user_sessions[user_id]['quality'] = quality
+    
+    bot.edit_message_text(
+        f"✅ Sifat tanlandi: {quality}p\n\n"
+        f"Endi kino videosini yuboring yoki forward qiling:",
+        user_id, call.message.message_id
+    )
+    
+    # Bu yerda kino video qabul qilish bosqichiga o'tish
+    user_sessions[user_id]['step'] = 'waiting_video'
+    
+    bot.answer_callback_query(call.id)
+    
 def handle_channel_message_id(message, session):
     user_id = message.from_user.id
     message_id_text = message.text.strip()
