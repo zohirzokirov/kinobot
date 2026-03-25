@@ -29,8 +29,8 @@ ADMIN_CHANNEL_ID = int(os.getenv('ADMIN_CHANNEL_ID', 0))
 DB_CONFIG = {
     'host': os.getenv('MYSQL_HOST', 'localhost'),
     'user': os.getenv('MYSQL_USER', 'root'),
-    'password': os.getenv('MYSQL_PASSWORD', ''),
-    'database': os.getenv('MYSQL_DATABASE', 'telegram_bot'),
+    'password': os.getenv('MYSQL_PASSWORD', 'biznes2025'),
+    'database': os.getenv('MYSQL_DATABASE', 'kinobot'),
     'buffered': True
 }
 
